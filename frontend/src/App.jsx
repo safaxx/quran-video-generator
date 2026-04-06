@@ -549,14 +549,13 @@ function App() {
     <div className="app-shell">
       <header className="hero">
         <div>
-          <p className="eyebrow">Quran Recitation Video Generator</p>
-          <h1>Build a simple recitation video editor, one step at a time.</h1>
+          <h1 className="eyebrow">Quran Recitation Video Generator</h1>
+          {/* <h1>Creating Quran recitation videos has never been easier</h1> */}
           <p className="hero-copy">
-            The page is now loading surahs, reciters, translations, and verses from live backend API
-            endpoints instead of hardcoded Quran data.
+            Select a surah, choose the verse range and reciter, style the text, add an image or video
+            background, preview the result, and export a shareable video.
           </p>
         </div>
-        <div className="hero-chip">Step 2: Live Quran Data</div>
       </header>
 
       {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
