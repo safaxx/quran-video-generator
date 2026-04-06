@@ -145,6 +145,11 @@ input {
   outline: none;
 }
 
+.field select option {
+  color: #10232b;
+  background: #f4f6f5;
+}
+
 .field input[type="range"] {
   width: 100%;
   accent-color: #f4c97e;
@@ -161,24 +166,6 @@ input {
   gap: 14px;
 }
 
-.summary-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 22px;
-  padding: 18px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(217, 170, 90, 0.18), rgba(255, 255, 255, 0.05));
-}
-
-.summary-label {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.86rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
 .download-button {
   width: 100%;
   margin-top: 18px;
@@ -191,6 +178,27 @@ input {
   cursor: pointer;
 }
 
+.download-button:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
+.media-upload-input {
+  display: none;
+}
+
+.upload-media-button {
+  width: 100%;
+  margin-top: 18px;
+  padding: 13px 16px;
+  border: 1px dashed rgba(244, 201, 126, 0.38);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f4c97e;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .preview-stage {
   position: relative;
   overflow: hidden;
@@ -198,8 +206,28 @@ input {
   margin-top: 18px;
   padding: 28px;
   border-radius: 24px;
+}
+
+.preview-background-image,
+.preview-background-video,
+.preview-stage-overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.preview-background-image {
   background-position: center;
   background-size: cover;
+}
+
+.preview-background-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.preview-stage-overlay {
+  background: linear-gradient(rgba(7, 16, 21, 0.35), rgba(7, 16, 21, 0.72));
 }
 
 .preview-content {
@@ -209,6 +237,7 @@ input {
   justify-content: center;
   align-items: center;
   text-align: center;
+  z-index: 1;
 }
 
 .surah-title {
@@ -235,7 +264,7 @@ input {
 }
 
 .verse-translation {
-  margin: 12px 0 0;
+  margin: 8px 0 0;
   color: #edf4f1;
   font-size: 1rem;
   line-height: 1.7;
@@ -248,6 +277,7 @@ input {
   bottom: 0;
   padding: 14px 18px 16px;
   background: linear-gradient(180deg, rgba(7, 18, 24, 0) 0%, rgba(7, 18, 24, 0.88) 42%, rgba(7, 18, 24, 0.96) 100%);
+  z-index: 1;
 }
 
 .video-progress-row {
@@ -324,22 +354,6 @@ input {
   font-size: 0.9rem;
 }
 
-.inline-timing-control {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  color: rgba(234, 241, 238, 0.82);
-  font-size: 0.9rem;
-}
-
-.inline-timing-control select {
-  padding: 8px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #f8fbfa;
-}
-
 .media-grid {
   display: grid;
   gap: 14px;
@@ -372,17 +386,11 @@ input {
   object-fit: cover;
 }
 
-.media-card-copy {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  padding: 14px;
-}
-
-.media-card-copy span {
-  color: var(--muted);
-  text-transform: capitalize;
+.media-card-preview {
+  display: block;
+  width: 100%;
+  height: 124px;
+  object-fit: cover;
 }
 
 @media (max-width: 1180px) {

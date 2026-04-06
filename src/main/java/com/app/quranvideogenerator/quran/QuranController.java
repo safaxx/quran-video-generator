@@ -5,8 +5,14 @@ import com.app.quranvideogenerator.quran.dto.ChapterAudioDto;
 import com.app.quranvideogenerator.quran.dto.RecitationOption;
 import com.app.quranvideogenerator.quran.dto.TranslationOption;
 import com.app.quranvideogenerator.quran.dto.VerseDto;
+import com.app.quranvideogenerator.quran.dto.VideoRenderRequest;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,9 +24,11 @@ import java.util.List;
 public class QuranController {
 
     private final QuranDataService quranDataService;
+    private final VideoRenderService videoRenderService;
 
-    public QuranController(QuranDataService quranDataService) {
+    public QuranController(QuranDataService quranDataService, VideoRenderService videoRenderService) {
         this.quranDataService = quranDataService;
+        this.videoRenderService = videoRenderService;
     }
 
     @GetMapping("/chapters")
@@ -55,5 +63,16 @@ public class QuranController {
             @RequestParam int recitationId
     ) {
         return quranDataService.getChapterAudio(chapterId, recitationId);
+    }
+
+    @PostMapping(value = "/export", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public ResponseEntity<byte[]> export(@RequestBody VideoRenderRequest request) {
+        byte[] videoBytes = videoRenderService.render(request);
+        String filename = "quran-video-" + request.chapterId() + "-" + request.fromVerse() + "-" + request.toVerse() + ".mp4";
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(filename).build().toString())
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(videoBytes);
     }
 }

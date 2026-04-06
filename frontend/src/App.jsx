@@ -3,24 +3,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 const backgrounds = [
   {
     id: "bg-1",
-    name: "Golden Desert",
+    name: "",
     type: "image",
+    source:
+      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1600&q=80",
     preview:
       "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80"
   },
   {
     id: "bg-2",
-    name: "Mountain Dawn",
+    name: "",
     type: "image",
+    source:
+      "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1600&q=80",
     preview:
       "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80"
-  },
-  {
-    id: "bg-3",
-    name: "Ocean Horizon",
-    type: "video",
-    preview:
-      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80"
   }
 ];
 
@@ -40,6 +37,21 @@ async function fetchJson(url) {
   return response.json();
 }
 
+function formatClock(totalSeconds) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("The selected media could not be read."));
+    reader.readAsDataURL(file);
+  });
+}
+
 function App() {
   const [chapters, setChapters] = useState([]);
   const [recitations, setRecitations] = useState([]);
@@ -52,16 +64,18 @@ function App() {
   const [selectedReciterId, setSelectedReciterId] = useState("");
   const [selectedTranslationId, setSelectedTranslationId] = useState("");
   const [selectedBackgroundId, setSelectedBackgroundId] = useState(backgrounds[0].id);
+  const [customBackground, setCustomBackground] = useState(null);
   const [selectedArabicScript, setSelectedArabicScript] = useState("uthmani");
   const [activeVerseNumber, setActiveVerseNumber] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [secondsPerVerse, setSecondsPerVerse] = useState(4);
   const [contentOpacity, setContentOpacity] = useState(68);
   const [verseFontSize, setVerseFontSize] = useState(42);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [loadingVerses, setLoadingVerses] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const audioRef = useRef(null);
+  const uploadInputRef = useRef(null);
 
   const selectedSurah = useMemo(
     () => chapters.find((surah) => surah.id === Number(selectedSurahId)) ?? null,
@@ -86,8 +100,13 @@ function App() {
     [translations, selectedTranslationId]
   );
 
+  const availableBackgrounds = useMemo(
+    () => (customBackground ? [customBackground, ...backgrounds] : backgrounds),
+    [customBackground]
+  );
+
   const selectedBackground =
-    backgrounds.find((background) => background.id === selectedBackgroundId) ?? backgrounds[0];
+    availableBackgrounds.find((background) => background.id === selectedBackgroundId) ?? availableBackgrounds[0];
 
   const activeVerse = verses.find((verse) => verse.verseNumber === activeVerseNumber) ?? verses[0] ?? null;
   const activeVerseIndex = verses.findIndex((verse) => verse.verseNumber === activeVerseNumber);
@@ -109,7 +128,25 @@ function App() {
       ? filteredAudioTimestamps[filteredAudioTimestamps.length - 1].timestampTo / 1000
       : 0;
 
-  const playbackProgress = verses.length === 0 ? 0 : ((Math.max(activeVerseIndex, 0) + 1) / verses.length) * 100;
+  const fallbackTotalSeconds = verses.length * 4;
+  const currentAudioSeconds = audioRef.current?.currentTime ?? 0;
+  const hasAudioRange = filteredAudioTimestamps.length > 0 && selectedAudioEndSeconds > selectedAudioStartSeconds;
+  const totalPlaybackSeconds = hasAudioRange
+    ? selectedAudioEndSeconds - selectedAudioStartSeconds
+    : fallbackTotalSeconds;
+  const currentPlaybackSeconds = hasAudioRange
+    ? Math.min(Math.max(currentAudioSeconds - selectedAudioStartSeconds, 0), totalPlaybackSeconds)
+    : Math.min(Math.max(activeVerseIndex, 0) * 4, totalPlaybackSeconds);
+  const playbackProgress =
+    totalPlaybackSeconds > 0 ? (currentPlaybackSeconds / totalPlaybackSeconds) * 100 : 0;
+
+  useEffect(() => {
+    return () => {
+      if (customBackground?.source?.startsWith("blob:")) {
+        URL.revokeObjectURL(customBackground.source);
+      }
+    };
+  }, [customBackground]);
 
   useEffect(() => {
     let isMounted = true;
@@ -277,10 +314,10 @@ function App() {
       }
 
       setActiveVerseNumber(verses[activeVerseIndex + 1].verseNumber);
-    }, secondsPerVerse * 1000);
+    }, 4000);
 
     return () => window.clearTimeout(timer);
-  }, [isPlaying, activeVerseIndex, verses, secondsPerVerse, chapterAudio]);
+  }, [isPlaying, activeVerseIndex, verses, chapterAudio]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -334,10 +371,114 @@ function App() {
     }
   }, [activeVerseNumber, chapterAudio, filteredAudioTimestamps, isPlaying]);
 
-  const handleDownload = () => {
-    window.alert(
-      "Next step: this button will call a backend video-render endpoint and download the finished MP4 to your machine."
-    );
+  const handleUploadMedia = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type.startsWith("video/");
+    if (!isImage && !isVideo) {
+      window.alert("Please upload an image or video file.");
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const objectUrl = URL.createObjectURL(file);
+
+      if (customBackground?.source?.startsWith("blob:")) {
+        URL.revokeObjectURL(customBackground.source);
+      }
+
+      const uploadedBackground = {
+        id: "bg-uploaded",
+        name: file.name.replace(/\.[^.]+$/, "") || "Uploaded media",
+        type: isVideo ? "video" : "image",
+        source: objectUrl,
+        preview: objectUrl,
+        exportSource: dataUrl
+      };
+
+      setCustomBackground(uploadedBackground);
+      setSelectedBackgroundId(uploadedBackground.id);
+    } catch (error) {
+      window.alert(error.message ?? "The selected media could not be loaded.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleDownload = async () => {
+    if (isDownloading || !selectedSurah || !activeVerse || verses.length === 0) {
+      return;
+    }
+
+    if (!chapterAudio?.audioUrl || filteredAudioTimestamps.length === 0) {
+      window.alert("Audio timing is not ready yet for this selection. Please try again in a moment.");
+      return;
+    }
+
+    let objectUrl;
+
+    try {
+      setIsDownloading(true);
+      const exportUrl =
+        window.location.hostname === "localhost"
+          ? "http://localhost:8080/api/quran/export"
+          : "/api/quran/export";
+
+      const response = await fetch(exportUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          chapterId: Number(selectedSurahId),
+          fromVerse,
+          toVerse,
+          translationId: Number(selectedTranslationId),
+          recitationId: Number(selectedReciterId),
+          script: selectedArabicScript,
+          backgroundType: selectedBackground.type,
+          backgroundUrl: selectedBackground.exportSource ? "" : selectedBackground.source,
+          backgroundDataUrl: selectedBackground.exportSource ?? "",
+          contentOpacity,
+          verseFontSize
+        })
+      });
+
+      if (!response.ok) {
+        let message = "Video export failed.";
+
+        try {
+          const errorPayload = await response.json();
+          if (errorPayload?.message) {
+            message = errorPayload.message;
+          }
+        } catch {
+          message = `Video export failed (${response.status}).`;
+        }
+
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `${selectedSurah.nameSimple.toLowerCase().replace(/\s+/g, "-")}-${fromVerse}-${toVerse}.mp4`;
+      link.click();
+    } catch (error) {
+      window.alert(error.message ?? "Video export failed.");
+    } finally {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+      setIsDownloading(false);
+    }
   };
 
   const handlePlayPause = () => {
@@ -511,16 +652,6 @@ function App() {
             </select>
           </label>
 
-          <div className="summary-card">
-            <p className="summary-label">Current selection</p>
-            <strong>
-              {selectedSurah ? selectedSurah.nameSimple : "Loading..."} - Verses {fromVerse}-{toVerse}
-            </strong>
-            <span>{selectedReciter ? selectedReciter.reciterName : "Loading reciters..."}</span>
-            <span>{selectedTranslation ? selectedTranslation.name : "Loading translations..."}</span>
-            <span>{selectedArabicScript === "indopak" ? "Indo Pak script" : "Uthmani script"}</span>
-          </div>
-
           <label className="field">
             <span>Text Box Opacity</span>
             <input
@@ -547,8 +678,13 @@ function App() {
             <small className="field-help">{verseFontSize}px</small>
           </label>
 
-          <button type="button" className="download-button" onClick={handleDownload}>
-            Download MP4
+          <button
+            type="button"
+            className="download-button"
+            onClick={handleDownload}
+            disabled={isDownloading}
+          >
+            {isDownloading ? "Rendering video..." : "Download Video"}
           </button>
         </section>
 
@@ -560,10 +696,25 @@ function App() {
 
           <div
             className="preview-stage"
-            style={{
-              backgroundImage: `linear-gradient(rgba(7, 16, 21, 0.35), rgba(7, 16, 21, 0.72)), url(${selectedBackground.preview})`
-            }}
           >
+            {selectedBackground.type === "video" ? (
+              <video
+                key={selectedBackground.id}
+                className="preview-background-video"
+                src={selectedBackground.source}
+                autoPlay
+                muted
+                loop
+                playsInline
+              />
+            ) : (
+              <div
+                className="preview-background-image"
+                style={{ backgroundImage: `url(${selectedBackground.source})` }}
+              />
+            )}
+            <div className="preview-stage-overlay" />
+
             <div className="preview-content">
               {loadingVerses ? <article className="verse-card active-verse-card">Loading verses...</article> : null}
 
@@ -573,7 +724,9 @@ function App() {
                   key={activeVerse.verseNumber}
                   style={{ backgroundColor: `rgba(7, 18, 24, ${contentOpacity / 100})` }}
                 >
-                  <p className="surah-title">{selectedSurah?.nameArabic ?? "Loading"}</p>
+                  <p className="surah-title">
+                    {selectedSurah?.nameArabic ?? "Loading"}
+                  </p>
                   <p
                     className="verse-arabic"
                     dir="rtl"
@@ -583,13 +736,16 @@ function App() {
                   >
                     {activeVerse.arabic}
                   </p>
-                  <p className="verse-translation">{activeVerse.translation}</p>
+                  <p className="verse-translation">
+                    {activeVerse.translation}
+                  </p>
                 </article>
               ) : null}
             </div>
 
             <audio
               ref={audioRef}
+              crossOrigin="anonymous"
               onEnded={handleAudioEnded}
               onTimeUpdate={handleAudioTimeUpdate}
               preload="auto"
@@ -597,15 +753,11 @@ function App() {
 
             <div className="video-controls">
               <div className="video-progress-row">
-                <span className="timecode">
-                  {verses.length === 0 ? "0:00" : `${Math.max(activeVerseIndex, 0) * secondsPerVerse}:00`}
-                </span>
+                <span className="timecode">{formatClock(currentPlaybackSeconds)}</span>
                 <div className="video-progress-track" aria-hidden="true">
                   <div className="video-progress-fill" style={{ width: `${playbackProgress}%` }} />
                 </div>
-                <span className="timecode">
-                  {verses.length === 0 ? "0:00" : `${verses.length * secondsPerVerse}:00`}
-                </span>
+                <span className="timecode">{formatClock(totalPlaybackSeconds)}</span>
               </div>
 
               <div className="video-controls-row">
@@ -638,17 +790,6 @@ function App() {
                   </span>
                   <span>{isPlaying ? "Playing" : "Paused"}</span>
                 </div>
-
-                <label className="inline-timing-control">
-                  <span>Speed</span>
-                  <select value={secondsPerVerse} onChange={(e) => setSecondsPerVerse(Number(e.target.value))}>
-                    {[3, 4, 5, 6, 8].map((seconds) => (
-                      <option key={seconds} value={seconds}>
-                        {seconds}s
-                      </option>
-                    ))}
-                  </select>
-                </label>
               </div>
             </div>
           </div>
@@ -660,19 +801,42 @@ function App() {
             <p>Select an image or video to use as the background.</p>
           </div>
 
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept="image/*,video/*"
+            className="media-upload-input"
+            onChange={handleUploadMedia}
+          />
+
+          <button
+            type="button"
+            className="upload-media-button"
+            onClick={() => uploadInputRef.current?.click()}
+          >
+            Upload Image or Video
+          </button>
+
           <div className="media-grid">
-            {backgrounds.map((background) => (
+            {availableBackgrounds.map((background) => (
               <button
                 key={background.id}
                 type="button"
                 className={`media-card ${background.id === selectedBackgroundId ? "active" : ""}`}
                 onClick={() => setSelectedBackgroundId(background.id)}
               >
-                <img src={background.preview} alt={background.name} />
-                <div className="media-card-copy">
-                  <strong>{background.name}</strong>
-                  <span>{background.type}</span>
-                </div>
+                {background.type === "video" ? (
+                  <video
+                    className="media-card-preview"
+                    src={background.preview}
+                    muted
+                    playsInline
+                    loop
+                    autoPlay
+                  />
+                ) : (
+                  <img src={background.preview} alt={background.name} />
+                )}
               </button>
             ))}
           </div>

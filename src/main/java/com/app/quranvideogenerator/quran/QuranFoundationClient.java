@@ -42,6 +42,14 @@ public class QuranFoundationClient {
                 .toUriString();
     }
 
+    public byte[] downloadBytes(String absoluteUrl) {
+        return restClient.get()
+                .uri(absoluteUrl)
+                .header("User-Agent", "Mozilla/5.0 QuranVideoGenerator/1.0")
+                .retrieve()
+                .body(byte[].class);
+    }
+
     private JsonNode readTree(byte[] body) {
         try {
             return objectMapper.readTree(body);
