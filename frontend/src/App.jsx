@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
+
 const backgrounds = [
   {
     id: "bg-1",
@@ -22,7 +24,7 @@ const backgrounds = [
 ];
 
 async function fetchJson(url) {
-  const response = await fetch(url);
+  const response = await fetch(`${API_BASE_URL}${url}`);
   const contentType = response.headers.get("content-type") ?? "";
 
   if (!response.ok) {
@@ -425,12 +427,7 @@ function App() {
 
     try {
       setIsDownloading(true);
-      const exportUrl =
-        window.location.hostname === "localhost"
-          ? "http://localhost:8080/api/quran/export"
-          : "/api/quran/export";
-
-      const response = await fetch(exportUrl, {
+      const response = await fetch(`${API_BASE_URL}/api/quran/export`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
