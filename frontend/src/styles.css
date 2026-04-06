@@ -209,17 +209,14 @@ input {
 }
 
 .preview-background-image,
+.preview-background-image-element,
 .preview-background-video,
 .preview-stage-overlay {
   position: absolute;
   inset: 0;
 }
 
-.preview-background-image {
-  background-position: center;
-  background-size: cover;
-}
-
+.preview-background-image-element,
 .preview-background-video {
   width: 100%;
   height: 100%;

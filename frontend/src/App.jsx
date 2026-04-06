@@ -7,6 +7,7 @@ const backgrounds = [
     id: "bg-1",
     name: "",
     type: "image",
+    mimeType: "image/jpeg",
     source:
       "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1600&q=80",
     preview:
@@ -16,6 +17,7 @@ const backgrounds = [
     id: "bg-2",
     name: "",
     type: "image",
+    mimeType: "image/jpeg",
     source:
       "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1600&q=80",
     preview:
@@ -52,6 +54,20 @@ function readFileAsDataUrl(file) {
     reader.onerror = () => reject(new Error("The selected media could not be read."));
     reader.readAsDataURL(file);
   });
+}
+
+async function fetchMediaAsDataUrl(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("The selected background media could not be prepared for export.");
+  }
+
+  const blob = await response.blob();
+  return readFileAsDataUrl(blob);
+}
+
+function isGifBackground(background) {
+  return background?.mimeType === "image/gif" || background?.source?.toLowerCase().includes(".gif");
 }
 
 function App() {
@@ -399,6 +415,7 @@ function App() {
         id: "bg-uploaded",
         name: file.name.replace(/\.[^.]+$/, "") || "Uploaded media",
         type: isVideo ? "video" : "image",
+        mimeType: file.type,
         source: objectUrl,
         preview: objectUrl,
         exportSource: dataUrl
@@ -427,6 +444,12 @@ function App() {
 
     try {
       setIsDownloading(true);
+      const backgroundDataUrl =
+        selectedBackground.exportSource ??
+        (selectedBackground.type === "video" || isGifBackground(selectedBackground)
+          ? await fetchMediaAsDataUrl(selectedBackground.source)
+          : "");
+
       const response = await fetch(`${API_BASE_URL}/api/quran/export`, {
         method: "POST",
         headers: {
@@ -440,8 +463,9 @@ function App() {
           recitationId: Number(selectedReciterId),
           script: selectedArabicScript,
           backgroundType: selectedBackground.type,
-          backgroundUrl: selectedBackground.exportSource ? "" : selectedBackground.source,
-          backgroundDataUrl: selectedBackground.exportSource ?? "",
+          backgroundMimeType: selectedBackground.mimeType ?? "",
+          backgroundUrl: backgroundDataUrl ? "" : selectedBackground.source,
+          backgroundDataUrl,
           contentOpacity,
           verseFontSize
         })
@@ -703,11 +727,15 @@ function App() {
                 loop
                 playsInline
               />
-            ) : (
-              <div
-                className="preview-background-image"
-                style={{ backgroundImage: `url(${selectedBackground.source})` }}
+            ) : isGifBackground(selectedBackground) ? (
+              <img
+                key={selectedBackground.id}
+                className="preview-background-image-element"
+                src={selectedBackground.source}
+                alt=""
               />
+            ) : (
+              <img className="preview-background-image-element" src={selectedBackground.source} alt="" />
             )}
             <div className="preview-stage-overlay" />
 
@@ -800,7 +828,7 @@ function App() {
           <input
             ref={uploadInputRef}
             type="file"
-            accept="image/*,video/*"
+            accept="image/*,video/*,.gif"
             className="media-upload-input"
             onChange={handleUploadMedia}
           />
@@ -810,7 +838,7 @@ function App() {
             className="upload-media-button"
             onClick={() => uploadInputRef.current?.click()}
           >
-            Upload Image or Video
+            Upload Image, GIF, or Video
           </button>
 
           <div className="media-grid">

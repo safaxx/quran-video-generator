@@ -14,6 +14,9 @@ import org.bytedeco.javacv.Java2DFrameConverter;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.metadata.IIOMetadataNode;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Font;
@@ -35,6 +38,7 @@ import java.text.AttributedCharacterIterator;
 import java.text.AttributedString;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -42,9 +46,9 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class VideoRenderService {
 
-    private static final int VIDEO_WIDTH = 1280;
-    private static final int VIDEO_HEIGHT = 720;
-    private static final int VIDEO_FPS = 30;
+    private static final int VIDEO_WIDTH = 960;
+    private static final int VIDEO_HEIGHT = 540;
+    private static final int VIDEO_FPS = 24;
     private static final long MICROS_PER_SECOND = 1_000_000L;
     private static final long MICROS_PER_MILLISECOND = 1_000L;
     private static final Color TITLE_COLOR = new Color(255, 242, 214);
@@ -105,6 +109,7 @@ public class VideoRenderService {
              FFmpegFrameGrabber audioGrabber = new FFmpegFrameGrabber(resolveAudioPath(chapterAudio.audioUrl(), audioPathRef::set));
              BackgroundSource backgroundSource = createBackgroundSource(
                      request.backgroundType(),
+                     request.backgroundMimeType(),
                      request.backgroundDataUrl(),
                      request.backgroundUrl(),
                      backgroundVideoPathRef
@@ -121,7 +126,7 @@ public class VideoRenderService {
                 recorder.setFrameRate(VIDEO_FPS);
                 recorder.setVideoCodec(avcodec.AV_CODEC_ID_H264);
                 recorder.setPixelFormat(avutil.AV_PIX_FMT_YUV420P);
-                recorder.setVideoBitrate(2_500_000);
+                recorder.setVideoBitrate(1_600_000);
                 recorder.setAudioCodec(avcodec.AV_CODEC_ID_AAC);
                 recorder.setSampleRate(sampleRate);
                 recorder.setAudioChannels(audioChannels);
@@ -284,31 +289,31 @@ public class VideoRenderService {
     }
 
     private void drawVerseCard(Graphics2D graphics, VideoRenderRequest request, ChapterOption chapter, VerseDto verse) {
-        int cardWidth = 1_132;
-        int cardX = 74;
-        int cardY = 250;
-        int cardHeight = 206;
-        int radius = 24;
+        int cardWidth = 850;
+        int cardX = 55;
+        int cardY = 185;
+        int cardHeight = 170;
+        int radius = 20;
 
         graphics.setComposite(AlphaComposite.SrcOver);
         graphics.setColor(new Color(7, 18, 24, clamp(request.contentOpacity(), 0, 90) * 255 / 100));
         graphics.fill(new RoundRectangle2D.Float(cardX, cardY, cardWidth, cardHeight, radius, radius));
 
         graphics.setColor(TITLE_COLOR);
-        Font titleFont = chooseArabicFont(36f);
+        Font titleFont = chooseArabicFont(28f);
         graphics.setFont(titleFont);
         drawCenteredText(graphics, chapter.nameArabic(), cardX + cardWidth / 2, cardY + 46);
 
         Font arabicFont = chooseArabicFont(clamp(request.verseFontSize(), 28, 72));
         graphics.setFont(arabicFont);
         graphics.setColor(Color.WHITE);
-        int arabicTop = cardY + 78;
-        drawWrappedText(graphics, verse.arabic(), cardX + 48, arabicTop, cardWidth - 96, true, true);
+        int arabicTop = cardY + 58;
+        drawWrappedText(graphics, verse.arabic(), cardX + 36, arabicTop, cardWidth - 72, true, true);
 
-        graphics.setFont(new Font("SansSerif", Font.PLAIN, 22));
+        graphics.setFont(new Font("SansSerif", Font.PLAIN, 18));
         graphics.setColor(TRANSLATION_COLOR);
-        int translationTop = cardY + 142;
-        drawWrappedText(graphics, verse.translation(), cardX + 60, translationTop, cardWidth - 120, false, true);
+        int translationTop = cardY + 116;
+        drawWrappedText(graphics, verse.translation(), cardX + 42, translationTop, cardWidth - 84, false, true);
     }
 
     private VerseDto determineVerse(List<VerseDto> verses, List<ChapterAudioTimestampDto> timestamps, long elapsedMicros) {
@@ -414,12 +419,17 @@ public class VideoRenderService {
 
     private BackgroundSource createBackgroundSource(
             String backgroundType,
+            String backgroundMimeType,
             String backgroundDataUrl,
             String backgroundUrl,
             AtomicReference<Path> backgroundVideoPathRef
     ) {
         if ("video".equalsIgnoreCase(backgroundType)) {
             return createVideoBackgroundSource(backgroundDataUrl, backgroundUrl, backgroundVideoPathRef);
+        }
+
+        if (isGifBackground(backgroundMimeType, backgroundDataUrl, backgroundUrl)) {
+            return createGifBackgroundSource(backgroundDataUrl, backgroundUrl);
         }
 
         BufferedImage image = loadBackground(backgroundDataUrl, backgroundUrl);
@@ -447,6 +457,36 @@ public class VideoRenderService {
 
     private byte[] resolveBackgroundVideoBytes(String backgroundDataUrl, String backgroundUrl) {
         if (backgroundDataUrl != null && backgroundDataUrl.startsWith("data:video/")) {
+            int commaIndex = backgroundDataUrl.indexOf(',');
+            if (commaIndex > 0) {
+                return Base64.getDecoder().decode(backgroundDataUrl.substring(commaIndex + 1));
+            }
+        }
+
+        return quranFoundationClient.downloadBytes(backgroundUrl);
+    }
+
+    private boolean isGifBackground(String backgroundMimeType, String backgroundDataUrl, String backgroundUrl) {
+        if (backgroundMimeType != null && backgroundMimeType.equalsIgnoreCase("image/gif")) {
+            return true;
+        }
+        if (backgroundDataUrl != null && backgroundDataUrl.startsWith("data:image/gif")) {
+            return true;
+        }
+        return backgroundUrl != null && backgroundUrl.toLowerCase().contains(".gif");
+    }
+
+    private BackgroundSource createGifBackgroundSource(String backgroundDataUrl, String backgroundUrl) {
+        try {
+            byte[] gifBytes = resolveImageBytes(backgroundDataUrl, backgroundUrl);
+            return new GifBackgroundSource(gifBytes);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to load the selected GIF background.", ex);
+        }
+    }
+
+    private byte[] resolveImageBytes(String backgroundDataUrl, String backgroundUrl) {
+        if (backgroundDataUrl != null && backgroundDataUrl.startsWith("data:image/")) {
             int commaIndex = backgroundDataUrl.indexOf(',');
             if (commaIndex > 0) {
                 return Base64.getDecoder().decode(backgroundDataUrl.substring(commaIndex + 1));
@@ -517,6 +557,81 @@ public class VideoRenderService {
         @Override
         public BufferedImage frameAt(long elapsedMicros) {
             return image;
+        }
+    }
+
+    private static final class GifBackgroundSource implements BackgroundSource {
+        private final List<BufferedImage> frames;
+        private final List<Long> cumulativeDurationsMicros;
+        private final long totalDurationMicros;
+
+        private GifBackgroundSource(byte[] gifBytes) {
+            this.frames = new ArrayList<>();
+            this.cumulativeDurationsMicros = new ArrayList<>();
+
+            try (ImageInputStream imageInputStream = ImageIO.createImageInputStream(new ByteArrayInputStream(gifBytes))) {
+                Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("gif");
+                if (!readers.hasNext()) {
+                    throw new IllegalStateException("GIF reader is not available.");
+                }
+
+                ImageReader reader = readers.next();
+                reader.setInput(imageInputStream, false);
+
+                long totalMicros = 0L;
+                int frameCount = reader.getNumImages(true);
+                for (int index = 0; index < frameCount; index++) {
+                    BufferedImage frame = reader.read(index);
+                    frames.add(frame);
+
+                    long frameDelayMicros = extractGifDelayMicros(reader.getImageMetadata(index));
+                    totalMicros += frameDelayMicros;
+                    cumulativeDurationsMicros.add(totalMicros);
+                }
+
+                reader.dispose();
+                this.totalDurationMicros = Math.max(totalMicros, MICROS_PER_SECOND / 5);
+            } catch (Exception ex) {
+                throw new IllegalStateException("Failed to decode GIF background.", ex);
+            }
+        }
+
+        @Override
+        public BufferedImage frameAt(long elapsedMicros) {
+            if (frames.isEmpty()) {
+                throw new IllegalStateException("GIF background has no frames.");
+            }
+
+            long loopedMicros = elapsedMicros % totalDurationMicros;
+            for (int index = 0; index < cumulativeDurationsMicros.size(); index++) {
+                if (loopedMicros < cumulativeDurationsMicros.get(index)) {
+                    return frames.get(index);
+                }
+            }
+
+            return frames.getLast();
+        }
+
+        private long extractGifDelayMicros(javax.imageio.metadata.IIOMetadata metadata) {
+            String formatName = metadata.getNativeMetadataFormatName();
+            if (formatName == null) {
+                return 100_000L;
+            }
+
+            IIOMetadataNode root = (IIOMetadataNode) metadata.getAsTree(formatName);
+            IIOMetadataNode graphicsControlExtension =
+                    (IIOMetadataNode) root.getElementsByTagName("GraphicControlExtension").item(0);
+            if (graphicsControlExtension == null) {
+                return 100_000L;
+            }
+
+            String delayTime = graphicsControlExtension.getAttribute("delayTime");
+            try {
+                int hundredths = Integer.parseInt(delayTime);
+                return Math.max(hundredths * 10_000L, 100_000L);
+            } catch (NumberFormatException ex) {
+                return 100_000L;
+            }
         }
     }
 

@@ -8,6 +8,7 @@ public record VideoRenderRequest(
         int recitationId,
         String script,
         String backgroundType,
+        String backgroundMimeType,
         String backgroundUrl,
         String backgroundDataUrl,
         int contentOpacity,
