@@ -96,7 +96,7 @@ public class QuranDataService {
                 .map(node -> new VerseDto(
                         node.path("verse_number").asInt(),
                         node.path("verse_key").asText(),
-                        extractArabic(node.path("words")),
+                        extractArabic(node.path("words"), wordField),
                         extractTranslation(node.path("translations"))
                 ))
                 .sorted(Comparator.comparing(VerseDto::verseNumber))
@@ -151,7 +151,7 @@ public class QuranDataService {
         return items;
     }
 
-    private String extractArabic(JsonNode words) {
+    private String extractArabic(JsonNode words, String wordField) {
         StringBuilder builder = new StringBuilder();
 
         for (JsonNode word : words) {
@@ -160,7 +160,7 @@ public class QuranDataService {
                 continue;
             }
 
-            String text = word.path("text_uthmani").asText("").trim();
+            String text = word.path(wordField).asText("").trim();
             if (text.isBlank()) {
                 continue;
             }

@@ -3,6 +3,7 @@ package com.app.quranvideogenerator.quran;
 import com.app.quranvideogenerator.quran.dto.ChapterAudioDto;
 import com.app.quranvideogenerator.quran.dto.ChapterAudioTimestampDto;
 import com.app.quranvideogenerator.quran.dto.ChapterOption;
+import com.app.quranvideogenerator.quran.dto.BackgroundAssetRequest;
 import com.app.quranvideogenerator.quran.dto.VerseDto;
 import com.app.quranvideogenerator.quran.dto.VideoRenderRequest;
 import org.bytedeco.ffmpeg.global.avcodec;
@@ -103,17 +104,11 @@ public class VideoRenderService {
 
         Path outputPath = null;
         AtomicReference<Path> audioPathRef = new AtomicReference<>();
-        AtomicReference<Path> backgroundVideoPathRef = new AtomicReference<>();
+        List<Path> backgroundTempPaths = new ArrayList<>();
 
         try (Java2DFrameConverter converter = new Java2DFrameConverter();
              FFmpegFrameGrabber audioGrabber = new FFmpegFrameGrabber(resolveAudioPath(chapterAudio.audioUrl(), audioPathRef::set));
-             BackgroundSource backgroundSource = createBackgroundSource(
-                     request.backgroundType(),
-                     request.backgroundMimeType(),
-                     request.backgroundDataUrl(),
-                     request.backgroundUrl(),
-                     backgroundVideoPathRef
-             )) {
+             BackgroundSequence backgroundSequence = createBackgroundSequence(request.backgrounds(), backgroundTempPaths)) {
 
             outputPath = Files.createTempFile("quran-video-export-", ".mp4");
             audioGrabber.start();
@@ -138,7 +133,7 @@ public class VideoRenderService {
                         chapter,
                         verses,
                         rangeTimestamps,
-                        backgroundSource,
+                        backgroundSequence,
                         startMicros,
                         endMicros,
                         durationMicros,
@@ -161,9 +156,9 @@ public class VideoRenderService {
                 } catch (IOException ignored) {
                 }
             }
-            if (backgroundVideoPathRef.get() != null) {
+            for (Path path : backgroundTempPaths) {
                 try {
-                    Files.deleteIfExists(backgroundVideoPathRef.get());
+                    Files.deleteIfExists(path);
                 } catch (IOException ignored) {
                 }
             }
@@ -181,7 +176,7 @@ public class VideoRenderService {
             ChapterOption chapter,
             List<VerseDto> verses,
             List<ChapterAudioTimestampDto> rangeTimestamps,
-            BackgroundSource backgroundSource,
+            BackgroundSequence backgroundSequence,
             long startMicros,
             long endMicros,
             long durationMicros,
@@ -212,7 +207,7 @@ public class VideoRenderService {
                         chapter,
                         verses,
                         rangeTimestamps,
-                        backgroundSource,
+                        backgroundSequence,
                         nextVideoMicros,
                         durationMicros
                 );
@@ -231,7 +226,7 @@ public class VideoRenderService {
                     chapter,
                     verses,
                     rangeTimestamps,
-                    backgroundSource,
+                    backgroundSequence,
                     nextVideoMicros,
                     durationMicros
             );
@@ -245,7 +240,7 @@ public class VideoRenderService {
             ChapterOption chapter,
             List<VerseDto> verses,
             List<ChapterAudioTimestampDto> rangeTimestamps,
-            BackgroundSource backgroundSource,
+            BackgroundSequence backgroundSequence,
             long elapsedMicros,
             long durationMicros
     ) {
@@ -257,20 +252,14 @@ public class VideoRenderService {
             graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
             graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-            drawBackground(graphics, backgroundSource.frameAt(elapsedMicros));
+            VerseDto activeVerse = determineVerse(verses, rangeTimestamps, elapsedMicros);
+            BackgroundSource activeBackground = backgroundSequence.sourceForVerse(activeVerse.verseNumber(), verses);
+            drawBackground(graphics, activeBackground.frameAt(elapsedMicros));
 
-            GradientPaint overlay = new GradientPaint(
-                    0,
-                    0,
-                    new Color(7, 16, 21, 89),
-                    0,
-                    VIDEO_HEIGHT,
-                    new Color(7, 16, 21, 184)
-            );
+            GradientPaint overlay = new GradientPaint(0, 0, new Color(7, 16, 21, 89), 0, VIDEO_HEIGHT, new Color(7, 16, 21, 184));
             graphics.setPaint(overlay);
             graphics.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
 
-            VerseDto activeVerse = determineVerse(verses, rangeTimestamps, elapsedMicros);
             drawVerseCard(graphics, request, chapter, activeVerse);
         } finally {
             graphics.dispose();
@@ -417,35 +406,40 @@ public class VideoRenderService {
         return new Font("Serif", Font.PLAIN, Math.round(size)).deriveFont(size);
     }
 
-    private BackgroundSource createBackgroundSource(
-            String backgroundType,
-            String backgroundMimeType,
-            String backgroundDataUrl,
-            String backgroundUrl,
-            AtomicReference<Path> backgroundVideoPathRef
-    ) {
-        if ("video".equalsIgnoreCase(backgroundType)) {
-            return createVideoBackgroundSource(backgroundDataUrl, backgroundUrl, backgroundVideoPathRef);
+    private BackgroundSequence createBackgroundSequence(List<BackgroundAssetRequest> requestedBackgrounds, List<Path> backgroundTempPaths) {
+        List<BackgroundAssetRequest> safeBackgrounds =
+                requestedBackgrounds == null ? List.of() : requestedBackgrounds;
+
+        List<BackgroundSource> sources = safeBackgrounds.stream()
+                .map(background -> createBackgroundSource(background, backgroundTempPaths))
+                .toList();
+
+        return new BackgroundSequence(sources);
+    }
+
+    private BackgroundSource createBackgroundSource(BackgroundAssetRequest background, List<Path> backgroundTempPaths) {
+        if ("video".equalsIgnoreCase(background.type())) {
+            return createVideoBackgroundSource(background.backgroundDataUrl(), background.backgroundUrl(), backgroundTempPaths);
         }
 
-        if (isGifBackground(backgroundMimeType, backgroundDataUrl, backgroundUrl)) {
-            return createGifBackgroundSource(backgroundDataUrl, backgroundUrl);
+        if (isGifBackground(background.mimeType(), background.backgroundDataUrl(), background.backgroundUrl())) {
+            return createGifBackgroundSource(background.backgroundDataUrl(), background.backgroundUrl());
         }
 
-        BufferedImage image = loadBackground(backgroundDataUrl, backgroundUrl);
+        BufferedImage image = loadBackground(background.backgroundDataUrl(), background.backgroundUrl());
         return new ImageBackgroundSource(image);
     }
 
     private BackgroundSource createVideoBackgroundSource(
             String backgroundDataUrl,
             String backgroundUrl,
-            AtomicReference<Path> backgroundVideoPathRef
+            List<Path> backgroundTempPaths
     ) {
         try {
             byte[] videoBytes = resolveBackgroundVideoBytes(backgroundDataUrl, backgroundUrl);
             Path tempVideo = Files.createTempFile("quran-background-", resolveVideoExtension(backgroundDataUrl, backgroundUrl));
             Files.write(tempVideo, videoBytes);
-            backgroundVideoPathRef.set(tempVideo);
+            backgroundTempPaths.add(tempVideo);
 
             FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(tempVideo.toFile());
             grabber.start();
@@ -533,9 +527,15 @@ public class VideoRenderService {
         if (request.translationId() <= 0 || request.recitationId() <= 0) {
             throw new IllegalArgumentException("Translation and reciter are required for export.");
         }
-        if ((request.backgroundUrl() == null || request.backgroundUrl().isBlank())
-                && (request.backgroundDataUrl() == null || request.backgroundDataUrl().isBlank())) {
+        if (request.backgrounds() == null || request.backgrounds().isEmpty()) {
             throw new IllegalArgumentException("A background must be selected before export.");
+        }
+        boolean everyBackgroundMissing = request.backgrounds().stream()
+                .allMatch(background ->
+                        (background.backgroundUrl() == null || background.backgroundUrl().isBlank())
+                                && (background.backgroundDataUrl() == null || background.backgroundDataUrl().isBlank()));
+        if (everyBackgroundMissing) {
+            throw new IllegalArgumentException("Selected backgrounds could not be prepared for export.");
         }
     }
 
@@ -544,6 +544,33 @@ public class VideoRenderService {
 
         @Override
         default void close() throws Exception {
+        }
+    }
+
+    private static final class BackgroundSequence implements AutoCloseable {
+        private final List<BackgroundSource> sources;
+
+        private BackgroundSequence(List<BackgroundSource> sources) {
+            this.sources = sources;
+        }
+
+        private BackgroundSource sourceForVerse(int verseNumber, List<VerseDto> verses) {
+            int verseIndex = 0;
+            for (int index = 0; index < verses.size(); index++) {
+                if (verses.get(index).verseNumber() == verseNumber) {
+                    verseIndex = index;
+                    break;
+                }
+            }
+
+            return sources.get(verseIndex % sources.size());
+        }
+
+        @Override
+        public void close() throws Exception {
+            for (BackgroundSource source : sources) {
+                source.close();
+            }
         }
     }
 

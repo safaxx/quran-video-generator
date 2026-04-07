@@ -2,28 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
 
-const backgrounds = [
-  {
-    id: "bg-1",
-    name: "",
-    type: "image",
-    mimeType: "image/jpeg",
-    source:
-      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1600&q=80",
-    preview:
-      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80"
-  },
-  {
-    id: "bg-2",
-    name: "",
-    type: "image",
-    mimeType: "image/jpeg",
-    source:
-      "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1600&q=80",
-    preview:
-      "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80"
-  }
-];
+const backgrounds = [];
 
 async function fetchJson(url) {
   const response = await fetch(`${API_BASE_URL}${url}`);
@@ -67,7 +46,7 @@ async function fetchMediaAsDataUrl(url) {
 }
 
 function isGifBackground(background) {
-  return background?.mimeType === "image/gif" || background?.source?.toLowerCase().includes(".gif");
+  return background?.mimeType === "image/gif" || (background?.source ?? "").toLowerCase().includes(".gif");
 }
 
 function App() {
@@ -81,8 +60,8 @@ function App() {
   const [toVerse, setToVerse] = useState(1);
   const [selectedReciterId, setSelectedReciterId] = useState("");
   const [selectedTranslationId, setSelectedTranslationId] = useState("");
-  const [selectedBackgroundId, setSelectedBackgroundId] = useState(backgrounds[0].id);
-  const [customBackground, setCustomBackground] = useState(null);
+  const [selectedBackgroundIds, setSelectedBackgroundIds] = useState([]);
+  const [customBackgrounds, setCustomBackgrounds] = useState([]);
   const [selectedArabicScript, setSelectedArabicScript] = useState("uthmani");
   const [activeVerseNumber, setActiveVerseNumber] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -94,6 +73,7 @@ function App() {
   const [errorMessage, setErrorMessage] = useState("");
   const audioRef = useRef(null);
   const uploadInputRef = useRef(null);
+  const previousCustomBackgroundsRef = useRef([]);
 
   const selectedSurah = useMemo(
     () => chapters.find((surah) => surah.id === Number(selectedSurahId)) ?? null,
@@ -118,16 +98,22 @@ function App() {
     [translations, selectedTranslationId]
   );
 
-  const availableBackgrounds = useMemo(
-    () => (customBackground ? [customBackground, ...backgrounds] : backgrounds),
-    [customBackground]
-  );
+  const availableBackgrounds = useMemo(() => [...customBackgrounds, ...backgrounds], [customBackgrounds]);
 
-  const selectedBackground =
-    availableBackgrounds.find((background) => background.id === selectedBackgroundId) ?? availableBackgrounds[0];
+  const selectedBackgroundSequence = useMemo(() => {
+    const ordered = selectedBackgroundIds
+      .map((id) => availableBackgrounds.find((background) => background.id === id))
+      .filter(Boolean);
+
+    return ordered;
+  }, [availableBackgrounds, selectedBackgroundIds]);
 
   const activeVerse = verses.find((verse) => verse.verseNumber === activeVerseNumber) ?? verses[0] ?? null;
   const activeVerseIndex = verses.findIndex((verse) => verse.verseNumber === activeVerseNumber);
+  const activeBackground =
+    selectedBackgroundSequence.length > 0
+      ? selectedBackgroundSequence[Math.max(activeVerseIndex, 0) % selectedBackgroundSequence.length]
+      : null;
 
   const filteredAudioTimestamps = useMemo(() => {
     if (!chapterAudio?.timestamps) {
@@ -159,12 +145,27 @@ function App() {
     totalPlaybackSeconds > 0 ? (currentPlaybackSeconds / totalPlaybackSeconds) * 100 : 0;
 
   useEffect(() => {
-    return () => {
-      if (customBackground?.source?.startsWith("blob:")) {
-        URL.revokeObjectURL(customBackground.source);
+    const previousBackgrounds = previousCustomBackgroundsRef.current;
+    const currentIds = new Set(customBackgrounds.map((background) => background.id));
+
+    previousBackgrounds.forEach((background) => {
+      if (!currentIds.has(background.id) && background.source?.startsWith("blob:")) {
+        URL.revokeObjectURL(background.source);
       }
+    });
+
+    previousCustomBackgroundsRef.current = customBackgrounds;
+  }, [customBackgrounds]);
+
+  useEffect(() => {
+    return () => {
+      previousCustomBackgroundsRef.current.forEach((background) => {
+        if (background.source?.startsWith("blob:")) {
+          URL.revokeObjectURL(background.source);
+        }
+      });
     };
-  }, [customBackground]);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -396,33 +397,37 @@ function App() {
     }
 
     const isImage = file.type.startsWith("image/");
-    const isVideo = file.type.startsWith("video/");
-    if (!isImage && !isVideo) {
-      window.alert("Please upload an image or video file.");
+    if (!isImage) {
+      window.alert("Please upload an image or GIF file.");
       event.target.value = "";
       return;
     }
 
     try {
-      const dataUrl = await readFileAsDataUrl(file);
-      const objectUrl = URL.createObjectURL(file);
+      const files = Array.from(event.target.files ?? []);
+      const uploadedBackgrounds = await Promise.all(
+        files.map(async (currentFile, index) => {
+          if (!currentFile.type.startsWith("image/")) {
+            throw new Error("Only image and GIF uploads are supported right now.");
+          }
 
-      if (customBackground?.source?.startsWith("blob:")) {
-        URL.revokeObjectURL(customBackground.source);
-      }
+          const dataUrl = await readFileAsDataUrl(currentFile);
+          const objectUrl = URL.createObjectURL(currentFile);
 
-      const uploadedBackground = {
-        id: "bg-uploaded",
-        name: file.name.replace(/\.[^.]+$/, "") || "Uploaded media",
-        type: isVideo ? "video" : "image",
-        mimeType: file.type,
-        source: objectUrl,
-        preview: objectUrl,
-        exportSource: dataUrl
-      };
+          return {
+            id: `bg-uploaded-${Date.now()}-${index}`,
+            name: currentFile.name.replace(/\.[^.]+$/, "") || "Uploaded media",
+            type: "image",
+            mimeType: currentFile.type,
+            source: objectUrl,
+            preview: objectUrl,
+            exportSource: dataUrl
+          };
+        })
+      );
 
-      setCustomBackground(uploadedBackground);
-      setSelectedBackgroundId(uploadedBackground.id);
+      setCustomBackgrounds((current) => [...uploadedBackgrounds, ...current]);
+      setSelectedBackgroundIds((current) => [...current, ...uploadedBackgrounds.map((background) => background.id)]);
     } catch (error) {
       window.alert(error.message ?? "The selected media could not be loaded.");
     } finally {
@@ -430,8 +435,24 @@ function App() {
     }
   };
 
+  const handleBackgroundToggle = (backgroundId) => {
+    setSelectedBackgroundIds((current) => {
+      if (current.includes(backgroundId)) {
+        const next = current.filter((id) => id !== backgroundId);
+        return next;
+      }
+
+      return [...current, backgroundId];
+    });
+  };
+
   const handleDownload = async () => {
     if (isDownloading || !selectedSurah || !activeVerse || verses.length === 0) {
+      return;
+    }
+
+    if (selectedBackgroundSequence.length === 0) {
+      window.alert("Please upload and select at least one background image or GIF.");
       return;
     }
 
@@ -444,11 +465,19 @@ function App() {
 
     try {
       setIsDownloading(true);
-      const backgroundDataUrl =
-        selectedBackground.exportSource ??
-        (selectedBackground.type === "video" || isGifBackground(selectedBackground)
-          ? await fetchMediaAsDataUrl(selectedBackground.source)
-          : "");
+      const backgroundPayloads = await Promise.all(
+        selectedBackgroundSequence.map(async (background) => {
+          const backgroundDataUrl =
+            background.exportSource ?? (isGifBackground(background) ? await fetchMediaAsDataUrl(background.source) : "");
+
+          return {
+            type: background.type,
+            mimeType: background.mimeType ?? "",
+            backgroundUrl: backgroundDataUrl ? "" : background.source,
+            backgroundDataUrl
+          };
+        })
+      );
 
       const response = await fetch(`${API_BASE_URL}/api/quran/export`, {
         method: "POST",
@@ -462,10 +491,7 @@ function App() {
           translationId: Number(selectedTranslationId),
           recitationId: Number(selectedReciterId),
           script: selectedArabicScript,
-          backgroundType: selectedBackground.type,
-          backgroundMimeType: selectedBackground.mimeType ?? "",
-          backgroundUrl: backgroundDataUrl ? "" : selectedBackground.source,
-          backgroundDataUrl,
+          backgrounds: backgroundPayloads,
           contentOpacity,
           verseFontSize
         })
@@ -576,8 +602,8 @@ function App() {
           <h1 className="eyebrow">Quran Recitation Video Generator</h1>
           {/* <h1>Creating Quran recitation videos has never been easier</h1> */}
           <p className="hero-copy">
-            Select a surah, choose the verse range and reciter, style the text, add an image or video
-            background, preview the result, and export a shareable video.
+            Select a surah, choose the verse range and reciter, style the text, arrange a sequence of
+            background images, preview the result, and export a shareable video.
           </p>
         </div>
       </header>
@@ -717,25 +743,19 @@ function App() {
           <div
             className="preview-stage"
           >
-            {selectedBackground.type === "video" ? (
-              <video
-                key={selectedBackground.id}
-                className="preview-background-video"
-                src={selectedBackground.source}
-                autoPlay
-                muted
-                loop
-                playsInline
-              />
-            ) : isGifBackground(selectedBackground) ? (
-              <img
-                key={selectedBackground.id}
-                className="preview-background-image-element"
-                src={selectedBackground.source}
-                alt=""
-              />
+            {activeBackground ? (
+              isGifBackground(activeBackground) ? (
+                <img
+                  key={activeBackground.id}
+                  className="preview-background-image-element"
+                  src={activeBackground.source}
+                  alt=""
+                />
+              ) : (
+                <img className="preview-background-image-element" src={activeBackground.source} alt="" />
+              )
             ) : (
-              <img className="preview-background-image-element" src={selectedBackground.source} alt="" />
+              <div className="preview-empty-state">Upload and select a background image or GIF to begin.</div>
             )}
             <div className="preview-stage-overlay" />
 
@@ -822,13 +842,14 @@ function App() {
         <section className="panel media-panel">
           <div className="panel-heading">
             <h2>Background Media</h2>
-            <p>Select an image or video to use as the background.</p>
+            <p>Select multiple images in order. The preview and export will show them one by one across the verses.</p>
           </div>
 
           <input
             ref={uploadInputRef}
             type="file"
-            accept="image/*,video/*,.gif"
+            accept="image/*,.gif"
+            multiple
             className="media-upload-input"
             onChange={handleUploadMedia}
           />
@@ -838,7 +859,7 @@ function App() {
             className="upload-media-button"
             onClick={() => uploadInputRef.current?.click()}
           >
-            Upload Image, GIF, or Video
+            Upload Images or GIFs
           </button>
 
           <div className="media-grid">
@@ -846,21 +867,15 @@ function App() {
               <button
                 key={background.id}
                 type="button"
-                className={`media-card ${background.id === selectedBackgroundId ? "active" : ""}`}
-                onClick={() => setSelectedBackgroundId(background.id)}
+                className={`media-card ${selectedBackgroundIds.includes(background.id) ? "active" : ""}`}
+                onClick={() => handleBackgroundToggle(background.id)}
               >
-                {background.type === "video" ? (
-                  <video
-                    className="media-card-preview"
-                    src={background.preview}
-                    muted
-                    playsInline
-                    loop
-                    autoPlay
-                  />
-                ) : (
-                  <img src={background.preview} alt={background.name} />
-                )}
+                <img src={background.preview} alt={background.name} />
+                {selectedBackgroundIds.includes(background.id) ? (
+                  <span className="media-order-badge">
+                    {selectedBackgroundIds.indexOf(background.id) + 1}
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>

@@ -1,5 +1,7 @@
 package com.app.quranvideogenerator.quran.dto;
 
+import java.util.List;
+
 public record VideoRenderRequest(
         int chapterId,
         int fromVerse,
@@ -7,10 +9,7 @@ public record VideoRenderRequest(
         int translationId,
         int recitationId,
         String script,
-        String backgroundType,
-        String backgroundMimeType,
-        String backgroundUrl,
-        String backgroundDataUrl,
+        List<BackgroundAssetRequest> backgrounds,
         int contentOpacity,
         int verseFontSize
 ) {
