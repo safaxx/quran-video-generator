@@ -32,6 +32,7 @@ import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Base64;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,8 +48,6 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class VideoRenderService {
 
-    private static final int VIDEO_WIDTH = 960;
-    private static final int VIDEO_HEIGHT = 540;
     private static final int VIDEO_FPS = 24;
     private static final long MICROS_PER_SECOND = 1_000_000L;
     private static final long MICROS_PER_MILLISECOND = 1_000L;
@@ -57,6 +56,7 @@ public class VideoRenderService {
     private static final Color PROGRESS_FILL = new Color(244, 201, 126);
     private static final Color PROGRESS_TRACK = new Color(255, 255, 255, 52);
     private static final Color TIMECODE_COLOR = new Color(245, 250, 248, 214);
+    private static final Font ARABIC_BASE_FONT = loadArabicBaseFont();
 
     private final QuranDataService quranDataService;
     private final QuranFoundationClient quranFoundationClient;
@@ -101,6 +101,7 @@ public class VideoRenderService {
         long startMicros = rangeTimestamps.getFirst().timestampFrom() * MICROS_PER_MILLISECOND;
         long endMicros = rangeTimestamps.getLast().timestampTo() * MICROS_PER_MILLISECOND;
         long durationMicros = Math.max(endMicros - startMicros, MICROS_PER_SECOND / 2);
+        RenderLayout layout = RenderLayout.forAspectRatio(request.aspectRatio());
 
         Path outputPath = null;
         AtomicReference<Path> audioPathRef = new AtomicReference<>();
@@ -116,7 +117,12 @@ public class VideoRenderService {
             int audioChannels = Math.max(audioGrabber.getAudioChannels(), 2);
             int sampleRate = Math.max(audioGrabber.getSampleRate(), 44_100);
 
-            try (FFmpegFrameRecorder recorder = new FFmpegFrameRecorder(outputPath.toFile(), VIDEO_WIDTH, VIDEO_HEIGHT, audioChannels)) {
+            try (FFmpegFrameRecorder recorder = new FFmpegFrameRecorder(
+                    outputPath.toFile(),
+                    layout.videoWidth(),
+                    layout.videoHeight(),
+                    audioChannels
+            )) {
                 recorder.setFormat("mp4");
                 recorder.setFrameRate(VIDEO_FPS);
                 recorder.setVideoCodec(avcodec.AV_CODEC_ID_H264);
@@ -134,6 +140,7 @@ public class VideoRenderService {
                         verses,
                         rangeTimestamps,
                         backgroundSequence,
+                        layout,
                         startMicros,
                         endMicros,
                         durationMicros,
@@ -177,6 +184,7 @@ public class VideoRenderService {
             List<VerseDto> verses,
             List<ChapterAudioTimestampDto> rangeTimestamps,
             BackgroundSequence backgroundSequence,
+            RenderLayout layout,
             long startMicros,
             long endMicros,
             long durationMicros,
@@ -208,6 +216,7 @@ public class VideoRenderService {
                         verses,
                         rangeTimestamps,
                         backgroundSequence,
+                        layout,
                         nextVideoMicros,
                         durationMicros
                 );
@@ -227,6 +236,7 @@ public class VideoRenderService {
                     verses,
                     rangeTimestamps,
                     backgroundSequence,
+                    layout,
                     nextVideoMicros,
                     durationMicros
             );
@@ -241,10 +251,11 @@ public class VideoRenderService {
             List<VerseDto> verses,
             List<ChapterAudioTimestampDto> rangeTimestamps,
             BackgroundSequence backgroundSequence,
+            RenderLayout layout,
             long elapsedMicros,
             long durationMicros
     ) {
-        BufferedImage frame = new BufferedImage(VIDEO_WIDTH, VIDEO_HEIGHT, BufferedImage.TYPE_3BYTE_BGR);
+        BufferedImage frame = new BufferedImage(layout.videoWidth(), layout.videoHeight(), BufferedImage.TYPE_3BYTE_BGR);
         Graphics2D graphics = frame.createGraphics();
 
         try {
@@ -254,13 +265,20 @@ public class VideoRenderService {
 
             VerseDto activeVerse = determineVerse(verses, rangeTimestamps, elapsedMicros);
             BackgroundSource activeBackground = backgroundSequence.sourceForVerse(activeVerse.verseNumber(), verses);
-            drawBackground(graphics, activeBackground.frameAt(elapsedMicros));
+            drawBackground(graphics, activeBackground.frameAt(elapsedMicros), layout);
 
-            GradientPaint overlay = new GradientPaint(0, 0, new Color(7, 16, 21, 89), 0, VIDEO_HEIGHT, new Color(7, 16, 21, 184));
+            GradientPaint overlay = new GradientPaint(
+                    0,
+                    0,
+                    new Color(7, 16, 21, 89),
+                    0,
+                    layout.videoHeight(),
+                    new Color(7, 16, 21, 184)
+            );
             graphics.setPaint(overlay);
-            graphics.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
+            graphics.fillRect(0, 0, layout.videoWidth(), layout.videoHeight());
 
-            drawVerseCard(graphics, request, chapter, activeVerse);
+            drawVerseCard(graphics, request, chapter, activeVerse, layout);
         } finally {
             graphics.dispose();
         }
@@ -268,41 +286,65 @@ public class VideoRenderService {
         return frame;
     }
 
-    private void drawBackground(Graphics2D graphics, BufferedImage background) {
-        double scale = Math.max((double) VIDEO_WIDTH / background.getWidth(), (double) VIDEO_HEIGHT / background.getHeight());
+    private void drawBackground(Graphics2D graphics, BufferedImage background, RenderLayout layout) {
+        double scale = Math.max(
+                (double) layout.videoWidth() / background.getWidth(),
+                (double) layout.videoHeight() / background.getHeight()
+        );
         int drawWidth = (int) Math.round(background.getWidth() * scale);
         int drawHeight = (int) Math.round(background.getHeight() * scale);
-        int drawX = (VIDEO_WIDTH - drawWidth) / 2;
-        int drawY = (VIDEO_HEIGHT - drawHeight) / 2;
+        int drawX = (layout.videoWidth() - drawWidth) / 2;
+        int drawY = (layout.videoHeight() - drawHeight) / 2;
         graphics.drawImage(background, drawX, drawY, drawWidth, drawHeight, null);
     }
 
-    private void drawVerseCard(Graphics2D graphics, VideoRenderRequest request, ChapterOption chapter, VerseDto verse) {
-        int cardWidth = 850;
-        int cardX = 55;
-        int cardY = 185;
-        int cardHeight = 170;
-        int radius = 20;
-
+    private void drawVerseCard(
+            Graphics2D graphics,
+            VideoRenderRequest request,
+            ChapterOption chapter,
+            VerseDto verse,
+            RenderLayout layout
+    ) {
         graphics.setComposite(AlphaComposite.SrcOver);
         graphics.setColor(new Color(7, 18, 24, clamp(request.contentOpacity(), 0, 90) * 255 / 100));
-        graphics.fill(new RoundRectangle2D.Float(cardX, cardY, cardWidth, cardHeight, radius, radius));
+        graphics.fill(new RoundRectangle2D.Float(
+                layout.cardX(),
+                layout.cardY(),
+                layout.cardWidth(),
+                layout.cardHeight(),
+                layout.cardRadius(),
+                layout.cardRadius()
+        ));
 
         graphics.setColor(TITLE_COLOR);
-        Font titleFont = chooseArabicFont(28f);
+        Font titleFont = chooseArabicFont(layout.titleFontSize());
         graphics.setFont(titleFont);
-        drawCenteredText(graphics, chapter.nameArabic(), cardX + cardWidth / 2, cardY + 46);
+        drawCenteredText(graphics, chapter.nameArabic(), layout.cardX() + layout.cardWidth() / 2, layout.titleBaselineY());
 
         Font arabicFont = chooseArabicFont(clamp(request.verseFontSize(), 28, 72));
         graphics.setFont(arabicFont);
         graphics.setColor(Color.WHITE);
-        int arabicTop = cardY + 58;
-        drawWrappedText(graphics, verse.arabic(), cardX + 36, arabicTop, cardWidth - 72, true, true);
+        drawWrappedText(
+                graphics,
+                verse.arabic(),
+                layout.cardX() + layout.arabicPaddingX(),
+                layout.arabicTopY(),
+                layout.cardWidth() - (layout.arabicPaddingX() * 2),
+                true,
+                true
+        );
 
-        graphics.setFont(new Font("SansSerif", Font.PLAIN, 18));
+        graphics.setFont(new Font("SansSerif", Font.PLAIN, layout.translationFontSize()));
         graphics.setColor(TRANSLATION_COLOR);
-        int translationTop = cardY + 116;
-        drawWrappedText(graphics, verse.translation(), cardX + 42, translationTop, cardWidth - 84, false, true);
+        drawWrappedText(
+                graphics,
+                verse.translation(),
+                layout.cardX() + layout.translationPaddingX(),
+                layout.translationTopY(),
+                layout.cardWidth() - (layout.translationPaddingX() * 2),
+                false,
+                true
+        );
     }
 
     private VerseDto determineVerse(List<VerseDto> verses, List<ChapterAudioTimestampDto> timestamps, long elapsedMicros) {
@@ -403,7 +445,19 @@ public class VideoRenderService {
     }
 
     private Font chooseArabicFont(float size) {
-        return new Font("Serif", Font.PLAIN, Math.round(size)).deriveFont(size);
+        return ARABIC_BASE_FONT.deriveFont(Font.PLAIN, size);
+    }
+
+    private static Font loadArabicBaseFont() {
+        try (InputStream inputStream = VideoRenderService.class.getResourceAsStream("/fonts/arabtype.ttf")) {
+            if (inputStream == null) {
+                return new Font("Serif", Font.PLAIN, 32);
+            }
+
+            return Font.createFont(Font.TRUETYPE_FONT, inputStream);
+        } catch (Exception ex) {
+            return new Font("Serif", Font.PLAIN, 32);
+        }
     }
 
     private BackgroundSequence createBackgroundSequence(List<BackgroundAssetRequest> requestedBackgrounds, List<Path> backgroundTempPaths) {
@@ -694,6 +748,80 @@ public class VideoRenderService {
             grabber.stop();
             grabber.close();
             converter.close();
+        }
+    }
+
+    private record RenderLayout(
+            int videoWidth,
+            int videoHeight,
+            int cardX,
+            int cardY,
+            int cardWidth,
+            int cardHeight,
+            int cardRadius,
+            float titleFontSize,
+            int titleBaselineY,
+            int arabicPaddingX,
+            int arabicTopY,
+            int translationPaddingX,
+            int translationTopY,
+            int translationFontSize
+    ) {
+        private static RenderLayout forAspectRatio(String aspectRatio) {
+            if ("vertical".equalsIgnoreCase(aspectRatio) || "portrait".equalsIgnoreCase(aspectRatio)) {
+                return new RenderLayout(
+                        720,
+                        1280,
+                        54,
+                        430,
+                        612,
+                        360,
+                        24,
+                        38f,
+                        500,
+                        42,
+                        538,
+                        54,
+                        760,
+                        28
+                );
+            }
+
+            if ("square".equalsIgnoreCase(aspectRatio)) {
+                return new RenderLayout(
+                        1080,
+                        1080,
+                        86,
+                        360,
+                        908,
+                        260,
+                        24,
+                        34f,
+                        432,
+                        42,
+                        462,
+                        54,
+                        606,
+                        24
+                );
+            }
+
+            return new RenderLayout(
+                    960,
+                    540,
+                    55,
+                    185,
+                    850,
+                    170,
+                    20,
+                    28f,
+                    231,
+                    36,
+                    243,
+                    42,
+                    301,
+                    18
+            );
         }
     }
 }

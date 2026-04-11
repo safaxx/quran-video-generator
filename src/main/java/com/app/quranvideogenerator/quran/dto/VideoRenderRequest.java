@@ -9,6 +9,7 @@ public record VideoRenderRequest(
         int translationId,
         int recitationId,
         String script,
+        String aspectRatio,
         List<BackgroundAssetRequest> backgrounds,
         int contentOpacity,
         int verseFontSize

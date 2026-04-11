@@ -3,6 +3,26 @@ import { useEffect, useMemo, useRef, useState } from "react";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
 
 const backgrounds = [];
+const VIDEO_FORMATS = {
+  landscape: {
+    label: "Landscape (16:9)",
+    description: "Regular YouTube videos",
+    aspectRatio: "16 / 9",
+    previewMaxWidth: "100%"
+  },
+  square: {
+    label: "Square (1:1)",
+    description: "Instagram feed style posts",
+    aspectRatio: "1 / 1",
+    previewMaxWidth: "760px"
+  },
+  vertical: {
+    label: "Vertical (9:16)",
+    description: "Shorts, Reels, TikTok",
+    aspectRatio: "9 / 16",
+    previewMaxWidth: "420px"
+  }
+};
 
 async function fetchJson(url) {
   const response = await fetch(`${API_BASE_URL}${url}`);
@@ -63,6 +83,7 @@ function App() {
   const [selectedBackgroundIds, setSelectedBackgroundIds] = useState([]);
   const [customBackgrounds, setCustomBackgrounds] = useState([]);
   const [selectedArabicScript, setSelectedArabicScript] = useState("uthmani");
+  const [selectedVideoFormat, setSelectedVideoFormat] = useState("landscape");
   const [activeVerseNumber, setActiveVerseNumber] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [contentOpacity, setContentOpacity] = useState(68);
@@ -97,6 +118,7 @@ function App() {
     () => translations.find((translation) => translation.id === Number(selectedTranslationId)) ?? null,
     [translations, selectedTranslationId]
   );
+  const selectedFormat = VIDEO_FORMATS[selectedVideoFormat] ?? VIDEO_FORMATS.landscape;
 
   const availableBackgrounds = useMemo(() => [...customBackgrounds, ...backgrounds], [customBackgrounds]);
 
@@ -491,6 +513,7 @@ function App() {
           translationId: Number(selectedTranslationId),
           recitationId: Number(selectedReciterId),
           script: selectedArabicScript,
+          aspectRatio: selectedVideoFormat,
           backgrounds: backgroundPayloads,
           contentOpacity,
           verseFontSize
@@ -699,6 +722,18 @@ function App() {
           </label>
 
           <label className="field">
+            <span>Video Format</span>
+            <select value={selectedVideoFormat} onChange={(e) => setSelectedVideoFormat(e.target.value)}>
+              {Object.entries(VIDEO_FORMATS).map(([value, format]) => (
+                <option key={value} value={value}>
+                  {format.label}
+                </option>
+              ))}
+            </select>
+            <small className="field-help">{selectedFormat.description}</small>
+          </label>
+
+          <label className="field">
             <span>Text Box Opacity</span>
             <input
               type="range"
@@ -742,6 +777,10 @@ function App() {
 
           <div
             className="preview-stage"
+            style={{
+              aspectRatio: selectedFormat.aspectRatio,
+              maxWidth: selectedFormat.previewMaxWidth
+            }}
           >
             {activeBackground ? (
               isGifBackground(activeBackground) ? (

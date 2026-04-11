@@ -192,8 +192,10 @@ input {
 .preview-stage {
   position: relative;
   overflow: hidden;
-  min-height: 740px;
+  width: 100%;
+  min-height: 0;
   margin-top: 18px;
+  margin-inline: auto;
   padding: 28px;
   border-radius: 24px;
 }
@@ -415,10 +417,6 @@ input {
   .workspace {
     grid-template-columns: 1fr;
   }
-
-  .preview-stage {
-    min-height: 620px;
-  }
 }
 
 @media (max-width: 720px) {
@@ -443,7 +441,6 @@ input {
   }
 
   .preview-stage {
-    min-height: 560px;
     padding: 18px;
   }
 
