@@ -321,27 +321,46 @@ public class VideoRenderService {
         graphics.setFont(titleFont);
         drawCenteredText(graphics, chapter.nameArabic(), layout.cardX() + layout.cardWidth() / 2, layout.titleBaselineY());
 
-        Font arabicFont = chooseArabicFont(clamp(request.verseFontSize(), 28, 72));
+        Font translationFont = new Font("SansSerif", Font.PLAIN, layout.translationFontSize());
+        graphics.setFont(translationFont);
+        int translationWidth = layout.cardWidth() - (layout.translationPaddingX() * 2);
+        int translationHeight = measureWrappedTextHeight(
+                graphics,
+                verse.translation(),
+                translationWidth,
+                false
+        );
+
+        float fittedArabicFontSize = fitArabicFontSize(
+                graphics,
+                verse.arabic(),
+                clamp(request.verseFontSize(), 28, 72),
+                layout,
+                translationHeight
+        );
+        Font arabicFont = chooseArabicFont(fittedArabicFontSize);
         graphics.setFont(arabicFont);
         graphics.setColor(Color.WHITE);
-        drawWrappedText(
+        int arabicWidth = layout.cardWidth() - (layout.arabicPaddingX() * 2);
+        int arabicBottomY = drawWrappedText(
                 graphics,
                 verse.arabic(),
                 layout.cardX() + layout.arabicPaddingX(),
                 layout.arabicTopY(),
-                layout.cardWidth() - (layout.arabicPaddingX() * 2),
+                arabicWidth,
                 true,
                 true
         );
 
-        graphics.setFont(new Font("SansSerif", Font.PLAIN, layout.translationFontSize()));
+        graphics.setFont(translationFont);
         graphics.setColor(TRANSLATION_COLOR);
+        int translationTopY = arabicBottomY + layout.translationGap();
         drawWrappedText(
                 graphics,
                 verse.translation(),
                 layout.cardX() + layout.translationPaddingX(),
-                layout.translationTopY(),
-                layout.cardWidth() - (layout.translationPaddingX() * 2),
+                translationTopY,
+                translationWidth,
                 false,
                 true
         );
@@ -368,7 +387,7 @@ public class VideoRenderService {
         graphics.drawString(text, centerX - textWidth / 2, baselineY);
     }
 
-    private void drawWrappedText(
+    private int drawWrappedText(
             Graphics2D graphics,
             String text,
             int x,
@@ -377,21 +396,11 @@ public class VideoRenderService {
             boolean rtl,
             boolean center
     ) {
-        Map<AttributedCharacterIterator.Attribute, Object> attributes = new java.util.HashMap<>();
-        attributes.put(TextAttribute.FONT, graphics.getFont());
-        attributes.put(TextAttribute.RUN_DIRECTION, rtl ? TextAttribute.RUN_DIRECTION_RTL : TextAttribute.RUN_DIRECTION_LTR);
-        AttributedString attributed = new AttributedString(text, attributes);
-        AttributedCharacterIterator iterator = attributed.getIterator();
-        LineBreakMeasurer measurer = new LineBreakMeasurer(iterator, new FontRenderContext(null, true, true));
-        List<String> lines = new ArrayList<>();
-
-        while (measurer.getPosition() < iterator.getEndIndex()) {
-            int start = measurer.getPosition();
-            measurer.nextLayout(maxWidth);
-            int end = measurer.getPosition();
-            lines.add(text.substring(start, end).trim());
+        if (text == null || text.isBlank()) {
+            return topY;
         }
 
+        List<String> lines = wrapTextLines(graphics, text, maxWidth, rtl);
         FontMetrics metrics = graphics.getFontMetrics();
         int lineHeight = metrics.getHeight() + 6;
         int baseline = topY + metrics.getAscent();
@@ -404,6 +413,77 @@ public class VideoRenderService {
             graphics.drawString(line, drawX, baseline);
             baseline += lineHeight;
         }
+
+        return topY + measureWrappedTextHeight(graphics, text, maxWidth, rtl);
+    }
+
+    private int fitArabicFontSize(
+            Graphics2D graphics,
+            String arabicText,
+            int requestedFontSize,
+            RenderLayout layout,
+            int translationHeight
+    ) {
+        int availableArabicHeight =
+                layout.cardHeight()
+                        - (layout.arabicTopY() - layout.cardY())
+                        - layout.translationGap()
+                        - translationHeight
+                        - layout.contentBottomPadding();
+        int fontSize = requestedFontSize;
+
+        while (fontSize > 24) {
+            graphics.setFont(chooseArabicFont(fontSize));
+            int arabicHeight = measureWrappedTextHeight(
+                    graphics,
+                    arabicText,
+                    layout.cardWidth() - (layout.arabicPaddingX() * 2),
+                    true
+            );
+            if (arabicHeight <= availableArabicHeight) {
+                return fontSize;
+            }
+            fontSize -= 2;
+        }
+
+        return fontSize;
+    }
+
+    private int measureWrappedTextHeight(Graphics2D graphics, String text, int maxWidth, boolean rtl) {
+        if (text == null || text.isBlank()) {
+            return 0;
+        }
+
+        List<String> lines = wrapTextLines(graphics, text, maxWidth, rtl);
+        if (lines.isEmpty()) {
+            return 0;
+        }
+
+        FontMetrics metrics = graphics.getFontMetrics();
+        int lineHeight = metrics.getHeight() + 6;
+        return metrics.getAscent() + ((lines.size() - 1) * lineHeight);
+    }
+
+    private List<String> wrapTextLines(Graphics2D graphics, String text, int maxWidth, boolean rtl) {
+        Map<AttributedCharacterIterator.Attribute, Object> attributes = new java.util.HashMap<>();
+        attributes.put(TextAttribute.FONT, graphics.getFont());
+        attributes.put(TextAttribute.RUN_DIRECTION, rtl ? TextAttribute.RUN_DIRECTION_RTL : TextAttribute.RUN_DIRECTION_LTR);
+        AttributedString attributed = new AttributedString(text, attributes);
+        AttributedCharacterIterator iterator = attributed.getIterator();
+        LineBreakMeasurer measurer = new LineBreakMeasurer(iterator, new FontRenderContext(null, true, true));
+        List<String> lines = new ArrayList<>();
+
+        while (measurer.getPosition() < iterator.getEndIndex()) {
+            int start = measurer.getPosition();
+            measurer.nextLayout(maxWidth);
+            int end = measurer.getPosition();
+            String line = text.substring(start, end).trim();
+            if (!line.isEmpty()) {
+                lines.add(line);
+            }
+        }
+
+        return lines;
     }
 
     private BufferedImage loadBackground(String backgroundDataUrl, String backgroundUrl) {
@@ -763,8 +843,9 @@ public class VideoRenderService {
             int titleBaselineY,
             int arabicPaddingX,
             int arabicTopY,
+            int translationGap,
+            int contentBottomPadding,
             int translationPaddingX,
-            int translationTopY,
             int translationFontSize
     ) {
         private static RenderLayout forAspectRatio(String aspectRatio) {
@@ -781,8 +862,9 @@ public class VideoRenderService {
                         500,
                         42,
                         538,
+                        18,
+                        28,
                         54,
-                        760,
                         28
                 );
             }
@@ -800,8 +882,9 @@ public class VideoRenderService {
                         432,
                         42,
                         462,
+                        14,
+                        24,
                         54,
-                        606,
                         24
                 );
             }
@@ -818,8 +901,9 @@ public class VideoRenderService {
                     231,
                     36,
                     243,
+                    10,
+                    20,
                     42,
-                    301,
                     18
             );
         }

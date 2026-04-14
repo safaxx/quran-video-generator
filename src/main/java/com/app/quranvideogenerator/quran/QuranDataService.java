@@ -77,7 +77,10 @@ public class QuranDataService {
 
     public List<VerseDto> getVerses(int chapterId, int fromVerse, int toVerse, int translationId, String script) {
         String wordField = resolveWordField(script);
+        int versesNeeded = Math.max(toVerse, DEFAULT_PAGE_SIZE);
         String path = UriComponentsBuilder.fromPath("/verses/by_chapter/{chapterId}")
+                .queryParam("page", 1)
+                .queryParam("per_page", versesNeeded)
                 .queryParam("words", true)
                 .queryParam("word_fields", wordField)
                 .queryParam("fields", "text_uthmani,verse_key,chapter_id")
