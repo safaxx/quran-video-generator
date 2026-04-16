@@ -88,6 +88,7 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [contentOpacity, setContentOpacity] = useState(68);
   const [verseFontSize, setVerseFontSize] = useState(42);
+  const [translationFontSize, setTranslationFontSize] = useState(18);
   const [isDownloading, setIsDownloading] = useState(false);
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [loadingVerses, setLoadingVerses] = useState(false);
@@ -516,7 +517,8 @@ function App() {
           aspectRatio: selectedVideoFormat,
           backgrounds: backgroundPayloads,
           contentOpacity,
-          verseFontSize
+          verseFontSize,
+          translationFontSize
         })
       });
 
@@ -759,6 +761,19 @@ function App() {
             <small className="field-help">{verseFontSize}px</small>
           </label>
 
+          <label className="field">
+            <span>Translation Font Size</span>
+            <input
+              type="range"
+              min="14"
+              max="36"
+              step="1"
+              value={translationFontSize}
+              onChange={(e) => setTranslationFontSize(Number(e.target.value))}
+            />
+            <small className="field-help">{translationFontSize}px</small>
+          </label>
+
           <button
             type="button"
             className="download-button"
@@ -819,7 +834,7 @@ function App() {
                   >
                     {activeVerse.arabic}
                   </p>
-                  <p className="verse-translation">
+                  <p className="verse-translation" style={{ fontSize: `${translationFontSize}px` }}>
                     {activeVerse.translation}
                   </p>
                 </article>

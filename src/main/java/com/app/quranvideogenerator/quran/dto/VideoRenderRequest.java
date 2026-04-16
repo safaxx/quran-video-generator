@@ -12,6 +12,7 @@ public record VideoRenderRequest(
         String aspectRatio,
         List<BackgroundAssetRequest> backgrounds,
         int contentOpacity,
-        int verseFontSize
+        int verseFontSize,
+        int translationFontSize
 ) {
 }

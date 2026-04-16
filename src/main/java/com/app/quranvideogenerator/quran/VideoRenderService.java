@@ -321,7 +321,8 @@ public class VideoRenderService {
         graphics.setFont(titleFont);
         drawCenteredText(graphics, chapter.nameArabic(), layout.cardX() + layout.cardWidth() / 2, layout.titleBaselineY());
 
-        Font translationFont = new Font("SansSerif", Font.PLAIN, layout.translationFontSize());
+        int translationFontSize = clamp(request.translationFontSize(), 14, 36);
+        Font translationFont = new Font("SansSerif", Font.PLAIN, translationFontSize);
         graphics.setFont(translationFont);
         int translationWidth = layout.cardWidth() - (layout.translationPaddingX() * 2);
         int translationHeight = measureWrappedTextHeight(
