@@ -305,22 +305,6 @@ public class VideoRenderService {
             VerseDto verse,
             RenderLayout layout
     ) {
-        graphics.setComposite(AlphaComposite.SrcOver);
-        graphics.setColor(new Color(7, 18, 24, clamp(request.contentOpacity(), 0, 90) * 255 / 100));
-        graphics.fill(new RoundRectangle2D.Float(
-                layout.cardX(),
-                layout.cardY(),
-                layout.cardWidth(),
-                layout.cardHeight(),
-                layout.cardRadius(),
-                layout.cardRadius()
-        ));
-
-        graphics.setColor(TITLE_COLOR);
-        Font titleFont = chooseArabicFont(layout.titleFontSize());
-        graphics.setFont(titleFont);
-        drawCenteredText(graphics, chapter.nameArabic(), layout.cardX() + layout.cardWidth() / 2, layout.titleBaselineY());
-
         int translationFontSize = clamp(request.translationFontSize(), 14, 36);
         Font translationFont = new Font("SansSerif", Font.PLAIN, translationFontSize);
         graphics.setFont(translationFont);
@@ -332,17 +316,45 @@ public class VideoRenderService {
                 false
         );
 
-        float fittedArabicFontSize = fitArabicFontSize(
+        int requestedArabicFontSize = clamp(request.verseFontSize(), 28, 72);
+        Font arabicFont = chooseArabicFont(requestedArabicFontSize);
+        graphics.setFont(arabicFont);
+        int arabicWidth = layout.cardWidth() - (layout.arabicPaddingX() * 2);
+        int arabicHeight = measureWrappedTextHeight(
                 graphics,
                 verse.arabic(),
-                clamp(request.verseFontSize(), 28, 72),
-                layout,
-                translationHeight
+                arabicWidth,
+                true
         );
-        Font arabicFont = chooseArabicFont(fittedArabicFontSize);
+
+        int cardHeight =
+                Math.max(
+                        layout.cardHeight(),
+                        (layout.arabicTopY() - layout.cardY())
+                                + arabicHeight
+                                + layout.translationGap()
+                                + translationHeight
+                                + layout.contentBottomPadding()
+                );
+
+        graphics.setComposite(AlphaComposite.SrcOver);
+        graphics.setColor(new Color(7, 18, 24, clamp(request.contentOpacity(), 0, 90) * 255 / 100));
+        graphics.fill(new RoundRectangle2D.Float(
+                layout.cardX(),
+                layout.cardY(),
+                layout.cardWidth(),
+                cardHeight,
+                layout.cardRadius(),
+                layout.cardRadius()
+        ));
+
+        graphics.setColor(TITLE_COLOR);
+        Font titleFont = chooseArabicFont(layout.titleFontSize());
+        graphics.setFont(titleFont);
+        drawCenteredText(graphics, chapter.nameArabic(), layout.cardX() + layout.cardWidth() / 2, layout.titleBaselineY());
+
         graphics.setFont(arabicFont);
         graphics.setColor(Color.WHITE);
-        int arabicWidth = layout.cardWidth() - (layout.arabicPaddingX() * 2);
         int arabicBottomY = drawWrappedText(
                 graphics,
                 verse.arabic(),
@@ -416,38 +428,6 @@ public class VideoRenderService {
         }
 
         return topY + measureWrappedTextHeight(graphics, text, maxWidth, rtl);
-    }
-
-    private int fitArabicFontSize(
-            Graphics2D graphics,
-            String arabicText,
-            int requestedFontSize,
-            RenderLayout layout,
-            int translationHeight
-    ) {
-        int availableArabicHeight =
-                layout.cardHeight()
-                        - (layout.arabicTopY() - layout.cardY())
-                        - layout.translationGap()
-                        - translationHeight
-                        - layout.contentBottomPadding();
-        int fontSize = requestedFontSize;
-
-        while (fontSize > 24) {
-            graphics.setFont(chooseArabicFont(fontSize));
-            int arabicHeight = measureWrappedTextHeight(
-                    graphics,
-                    arabicText,
-                    layout.cardWidth() - (layout.arabicPaddingX() * 2),
-                    true
-            );
-            if (arabicHeight <= availableArabicHeight) {
-                return fontSize;
-            }
-            fontSize -= 2;
-        }
-
-        return fontSize;
     }
 
     private int measureWrappedTextHeight(Graphics2D graphics, String text, int maxWidth, boolean rtl) {
@@ -863,7 +843,7 @@ public class VideoRenderService {
                         500,
                         42,
                         538,
-                        18,
+                        24,
                         28,
                         54,
                         28
@@ -883,7 +863,7 @@ public class VideoRenderService {
                         432,
                         42,
                         462,
-                        14,
+                        20,
                         24,
                         54,
                         24
@@ -902,7 +882,7 @@ public class VideoRenderService {
                     231,
                     36,
                     243,
-                    10,
+                    16,
                     20,
                     42,
                     18

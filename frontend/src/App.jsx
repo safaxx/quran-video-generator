@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
 
 const backgrounds = [];
+const DEFAULT_TRANSLATION_MATCHERS = ["hilali", "khan"];
 const VIDEO_FORMATS = {
   landscape: {
     label: "Landscape (16:9)",
@@ -86,7 +87,7 @@ function App() {
   const [selectedVideoFormat, setSelectedVideoFormat] = useState("landscape");
   const [activeVerseNumber, setActiveVerseNumber] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [contentOpacity, setContentOpacity] = useState(68);
+  const [contentOpacity, setContentOpacity] = useState(0);
   const [verseFontSize, setVerseFontSize] = useState(42);
   const [translationFontSize, setTranslationFontSize] = useState(18);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -224,7 +225,13 @@ function App() {
         }
 
         if (translationData.length > 0) {
-          setSelectedTranslationId(String(translationData[0].id));
+          const defaultTranslation =
+            translationData.find((translation) => {
+              const searchableText = `${translation.name} ${translation.authorName ?? ""}`.toLowerCase();
+              return DEFAULT_TRANSLATION_MATCHERS.every((matcher) => searchableText.includes(matcher));
+            }) ?? translationData[0];
+
+          setSelectedTranslationId(String(defaultTranslation.id));
         }
       } catch (error) {
         if (isMounted) {
